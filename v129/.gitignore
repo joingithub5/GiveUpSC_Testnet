@@ -8,7 +8,8 @@ out/
 /broadcast/**/dry-run/
 
 # lib/ wrong
-/lib
+# /lib delete the folder ???
+/v129/lib/
 
 # Docs
 docs/
