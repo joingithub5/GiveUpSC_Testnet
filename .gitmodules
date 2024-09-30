@@ -1,0 +1,15 @@
+[submodule "v129/lib/v2-core"]
+	path = v129/lib/v2-core
+	url = https://github.com/Uniswap/v2-core
+[submodule "v129/lib/v2-periphery"]
+	path = v129/lib/v2-periphery
+	url = https://github.com/Uniswap/v2-periphery
+[submodule "v129/lib/solidity-lib"]
+	path = v129/lib/solidity-lib
+	url = https://github.com/Uniswap/solidity-lib
+[submodule "v129/lib/solmate"]
+	path = v129/lib/solmate
+	url = https://github.com/transmissions11/solmate
+[submodule "v129/lib/openzeppelin-contracts-upgradeable"]
+	path = v129/lib/openzeppelin-contracts-upgradeable
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
