@@ -1,0 +1,72 @@
+Compiling 76 files with Solc 0.8.20
+Compiling 11 files with Solc 0.6.6
+Compiling 12 files with Solc 0.5.16
+Solc 0.5.16 finished in 321.53ms
+Solc 0.6.6 finished in 406.79ms
+Solc 0.8.20 finished in 6.62s
+Compiler run successful with warnings:
+Warning: Contract code size exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+lib/v2-periphery/contracts/UniswapV2Router02.sol:12:1: Warning: Contract code size exceeds 24576 bytes (a limit introduced in Spurious Dragon). This contract may not be deployable on mainnet. Consider enabling the optimizer (with a low "runs" value!), turning off revert strings, or using libraries.
+contract UniswapV2Router02 is IUniswapV2Router02 {
+^ (Relevant source part starts here and spans across multiple lines).
+Analysing contracts...
+Running tests...
+
+Ran 1 test for test/integration/ExploitTest.t.sol:GiveUp129ExploitTest
+[PASS] testExploit_1() (gas: 908976)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 16.75ms (4.86ms CPU time)
+
+Ran 13 tests for test/unit/GiveUp_129Test.t.sol:GiveUp129UnitTest
+[PASS] testChangeTax() (gas: 47389)
+[PASS] testCreateCampaign() (gas: 651449)
+[PASS] testDelayBlockNumberToPreventFrontRun() (gas: 47116)
+[PASS] testDonateToCampaign_0_90() (gas: 1221181)
+[PASS] testGetBackerFraudReport() (gas: 526760)
+[PASS] testGetCIdFromAddressAndIndex() (gas: 521278)
+[PASS] testGetRateDetail() (gas: 563883)
+[PASS] testGetRateDetailOfFraudReport() (gas: 563878)
+[PASS] testOutsideCantSendNativeTokenDirectlyToContract() (gas: 899362)
+[PASS] testOwnerIsMessageSender() (gas: 28418)
+[PASS] testPenaltyContract() (gas: 55755)
+[PASS] testPresentCIdAndRuleId() (gas: 26205)
+[PASS] testRulerAddr() (gas: 60019)
+Suite result: ok. 13 passed; 0 failed; 0 skipped; finished in 21.27ms (42.11ms CPU time)
+
+Ran 4 tests for test/unit/UniswapDeployerTest.t.sol:UniswapTests
+[PASS] test_addLiqToken() (gas: 4795378)
+[PASS] test_deployedRouter() (gas: 5691)
+[PASS] test_uniswapFactory() (gas: 7854)
+[PASS] test_wrappedEther() (gas: 9974)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 24.17ms (2.83ms CPU time)
+
+Ran 11 tests for test/integration/InteractionsTest.t.sol:GiveUp129InteractionsTest
+[PASS] testAllPaidOutDeleteCombinations() (gas: 108613939)
+[PASS] testDeleteCampaign() (gas: 2384684)
+[PASS] testDonateVoteWithdraw_0_90_p1() (gas: 3810710)
+[PASS] testDonateVoteWithdraw_0_90_p2() (gas: 4996056)
+[PASS] testDonateVoteWithdraw_100_0() (gas: 2905381)
+[PASS] testNonProfitCampaignPayoutRight_P1() (gas: 2973696)
+[PASS] testNonProfitCampaignPayoutRight_P2() (gas: 13631365)
+[PASS] testPaidOutDelete_90_10() (gas: 15292348)
+[PASS] testUpdateCampaign() (gas: 3108879)
+[PASS] testVoteDonateInteraction() (gas: 3667208)
+[PASS] testWhiteListTokenInteractions() (gas: 251984)
+Suite result: ok. 11 passed; 0 failed; 0 skipped; finished in 359.22ms (540.32ms CPU time)
+
+Ran 4 test suites in 365.22ms (421.40ms CPU time): 29 tests passed, 0 failed, 0 skipped (29 total tests)
+| File                         | % Lines          | % Statements      | % Branches       | % Funcs         |
+|------------------------------|------------------|-------------------|------------------|-----------------|
+| script/DeployGiveUp129.s.sol | 100.00% (21/21)  | 100.00% (24/24)   | 50.00% (1/2)     | 100.00% (3/3)   |
+| script/HelperConfig.s.sol    | 0.00% (0/7)      | 0.00% (0/9)       | 0.00% (0/2)      | 0.00% (0/3)     |
+| script/Interactions.s.sol    | 74.07% (40/54)   | 78.26% (54/69)    | 50.00% (3/6)     | 61.54% (8/13)   |
+| script/UniswapDeployer.s.sol | 100.00% (3/3)    | 100.00% (3/3)     | 100.00% (0/0)    | 100.00% (1/1)   |
+| src/GiveUpDeployer.sol       | 100.00% (13/13)  | 100.00% (19/19)   | 100.00% (0/0)    | 100.00% (2/2)   |
+| src/GiveUp_129.sol           | 85.37% (210/246) | 84.76% (228/269)  | 50.75% (68/134)  | 87.04% (47/54)  |
+| src/TokenTemplate1.sol       | 37.21% (48/129)  | 35.10% (53/151)   | 26.60% (25/94)   | 52.94% (9/17)   |
+| src/lib/GLib_Base1.sol       | 59.17% (100/169) | 58.58% (140/239)  | 44.68% (42/94)   | 85.71% (12/14)  |
+| src/lib/GLib_Base2.sol       | 68.45% (217/317) | 64.33% (303/471)  | 50.99% (103/202) | 93.33% (14/15)  |
+| test/mock/ANY.sol            | 100.00% (1/1)    | 100.00% (1/1)     | 100.00% (0/0)    | 100.00% (2/2)   |
+| test/mock/CTK.sol            | 0.00% (0/1)      | 0.00% (0/1)       | 100.00% (0/0)    | 0.00% (0/2)     |
+| test/mock/ROTTEN.sol         | 0.00% (0/1)      | 0.00% (0/1)       | 100.00% (0/0)    | 0.00% (0/2)     |
+| test/mock/TokenTest.sol      | 0.00% (0/1)      | 0.00% (0/1)       | 100.00% (0/0)    | 0.00% (0/1)     |
+| Total                        | 67.81% (653/963) | 65.58% (825/1258) | 45.32% (242/534) | 75.97% (98/129) |

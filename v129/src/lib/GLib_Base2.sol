@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.13;
+pragma solidity 0.8.20;
 
 /* 
 GIVEUP CRYPTO
@@ -28,7 +28,7 @@ library GiveUpLib2 {
     }
 
     /**
-     * @dev Adds an option to the list of options voted for a campaign.
+     * @dev When voter vote for an option, if the option is already in his vote result mapping, it will not be added and returns false. If the option is not in the mapping, it will be added and returns true.
      * @param _id The ID of the campaign.
      * @param _option The option to add.
      * @param _tokenSymbol The symbol of the token used to vote.
@@ -41,38 +41,38 @@ library GiveUpLib2 {
         uint256 _option,
         string memory _tokenSymbol,
         mapping(uint256 => mapping(address => mapping(uint256 => VoteData))) storage campaignOptionsVoted,
+        mapping(uint256 => mapping(uint256 => address)) storage campaignVoter,
         Campaign storage campaign
     ) internal returns (bool) {
-        bool optionVoted = false; // v129: change addSuccess -> optionVoted: check if _option is already voted?
-        uint256 totalVote = 0; // v129: change emptyAt -> totalVote
+        bool optionVoted = false; // will turn true later on if _option is already voted
+        uint256 totalVote = 0; // count how many distinct options have been voted by msg.sender
         for (uint256 i = 0; i < 5; i++) {
             if (
-                // campaignOptionsVoted[_id][msg.sender][i].option != 0 ||  // not correct
                 keccak256(abi.encodePacked(campaignOptionsVoted[_id][msg.sender][i].tokenSymbol))
                     != keccak256(abi.encodePacked("")) // find i position that hasn't assigned voted token symbol
             ) {
                 totalVote += 1; // if i position have assignment -> increase totalVote
             } else {
-                break; // exit the for loop
+                break; // exit the for loop because campaignOptionsVoted save vote sequence, if there's no assignment, it means no vote has been made at that slot.
             }
         }
 
-        // if (_option < 5 && _option >= 0) { // v129: change checking at caller
         for (uint256 i = 0; i < totalVote; i++) {
             if (campaignOptionsVoted[_id][msg.sender][i].option == _option) {
-                optionVoted = true; // already voted that _option in previous votes
-                // break;
-                return optionVoted;
+                optionVoted = true; // caller already voted that _option in previous votes
+                return optionVoted; 
             }
         }
 
         if (!optionVoted) {
             campaignOptionsVoted[_id][msg.sender][totalVote] = VoteData(_option, _tokenSymbol);
-            optionVoted = true; // new voted at newest index
+            optionVoted = true; // new vote added at newest index
         }
 
         if (totalVote == 0 && optionVoted) {
-            campaign.cFunded.voterAddr.push(payable(msg.sender)); // add new voter when he/she first vote thus make item unique
+            // add new voter when he/she first vote thus make item unique
+            campaignVoter[_id][campaign.cFunded.voterCount] = msg.sender;
+            campaign.cFunded.voterCount += 1;
         }
         return optionVoted;
     }
@@ -95,31 +95,31 @@ library GiveUpLib2 {
                 successUpdate += 1;
             } else {
                 if (keccak256(abi.encode(_uintFields[i])) == keccak256(abi.encode("target")) && haveFundTarget > 0) {
-                    campaign.cFunded.target = _uintValues[i];
+                    campaign.cFunded.raisedFund.target = _uintValues[i];
                     successUpdate += 1;
                 } else if (
                     keccak256(abi.encode(_uintFields[i])) == keccak256(abi.encode("firstTokenTarget"))
                         && haveFundTarget > 0
                 ) {
-                    campaign.cFunded.firstTokenTarget = _uintValues[i];
+                    campaign.cFunded.raisedFund.firstTokenTarget = _uintValues[i];
                     successUpdate += 1;
                 } else if (
                     keccak256(abi.encode(_uintFields[i])) == keccak256(abi.encode("secondTokenTarget"))
                         && haveFundTarget > 0
                 ) {
-                    campaign.cFunded.secondTokenTarget = _uintValues[i];
+                    campaign.cFunded.raisedFund.secondTokenTarget = _uintValues[i];
                     successUpdate += 1;
                 } else if (
                     keccak256(abi.encode(_uintFields[i])) == keccak256(abi.encode("thirdTokenTarget"))
                         && haveFundTarget > 0
                 ) {
-                    campaign.cFunded.thirdTokenTarget = _uintValues[i];
+                    campaign.cFunded.raisedFund.thirdTokenTarget = _uintValues[i];
                     successUpdate += 1;
                 } else if (
                     keccak256(abi.encode(_uintFields[i])) == keccak256(abi.encode("equivalentUSDTarget"))
                         && haveFundTarget > 0
                 ) {
-                    campaign.cFunded.equivalentUSDTarget = _uintValues[i];
+                    campaign.cFunded.raisedFund.equivalentUSDTarget = _uintValues[i];
                     successUpdate += 1;
                 } else {
                     if (haveFundTarget > 0) {
@@ -141,7 +141,8 @@ library GiveUpLib2 {
 
     /**
      * follow strict keywords rule in createCampaign()
-     * EXCEPTION RULE: if haveFundTarget == 0, then ALL FUND TARGET WILL ALSO == 0 !!! WHATSOEVER
+     * NOTE EXCEPTION RULE: if haveFundTarget == 0, then ALL FUND TARGET WILL ALSO == 0 !!! WHATSOEVER
+     * TODO: when haveFundTarget = 0,still deploy mechanism for raiser to set campaign fund target and deadline like normal campaign (for management purpose).
      * @param haveFundTarget PAY ATTENTION WHEN SETTING TO 0 ! (see Exception Rule above)
      * @param pctForBackers ...
      * @param _stringFields ...
@@ -168,7 +169,10 @@ library GiveUpLib2 {
         require(
             (
                 campaign.cStatus.campaignStatus == campaignStatusEnum.DRAFT
-                    || (campaign.cStatus.campaignStatus == campaignStatusEnum.OPEN && campaign.cFunded.totalDonating == 0)
+                    || (
+                        campaign.cStatus.campaignStatus == campaignStatusEnum.OPEN
+                            && campaign.cFunded.raisedFund.totalDonating == 0
+                    )
             ),
             string(
                 abi.encodePacked(
@@ -182,21 +186,19 @@ library GiveUpLib2 {
         require(block.timestamp <= campaign.cInfo.startAt, "start time must be now or in future");
 
         if (haveFundTarget != campaign.cId.haveFundTarget) {
-            campaign.cId.haveFundTarget = haveFundTarget; // new in V008
+            campaign.cId.haveFundTarget = haveFundTarget;
         }
 
-        // pay attention to haveFundTarget == 0
         if (haveFundTarget == 0) {
-            campaign.cFunded.target = 0;
-            campaign.cFunded.firstTokenTarget = 0;
-            campaign.cFunded.secondTokenTarget = 0;
-            campaign.cFunded.thirdTokenTarget = 0;
-            campaign.cFunded.equivalentUSDTarget = 0;
+            campaign.cFunded.raisedFund.target = 0;
+            campaign.cFunded.raisedFund.firstTokenTarget = 0;
+            campaign.cFunded.raisedFund.secondTokenTarget = 0;
+            campaign.cFunded.raisedFund.thirdTokenTarget = 0;
+            campaign.cFunded.raisedFund.equivalentUSDTarget = 0;
         }
 
-        // if (pctForBackers != campaign.cStatus.pctForBackers) {
         if (pctForBackers != campaign.cId.pctForBackers) {
-            campaign.cId.pctForBackers = pctForBackers; // v129 // new in w008 12.1
+            campaign.cId.pctForBackers = pctForBackers;
         }
 
         uint256 stringFieldslength = _stringFields.length;
@@ -276,24 +278,20 @@ library GiveUpLib2 {
 
     /**
      * Main Logic of Pay Out Rule: besides checking address(0), campaign status, this function will check conditions for each object to proceed payout:
-     * if acceptance text code is "FOL" -> only operator/ contract owner can
-     * if haveFundTarget = 100, operator/ contract owner, raiser, alchemist can. Raiser don't need Alchemist's address
-     * if 0 < haveFundTarget < 100, operator/ contract owner, raiser, alchemist can but raiser need Alchemist's address approved.
+     * - if haveFundTarget = 100, operator/ contract owner, raiser, alchemist can call payout. Raiser don't need Alchemist's address
+     * - if 0 < haveFundTarget < 100, operator/ contract owner, raiser, alchemist can call payout. but raiser need Alchemist's address approved.
+     * - if haveFundTarget = 0 -> see function performPayout for more detail
      */
     function payOutCampaign(
         Campaign storage campaign,
-        uint256 campaignTax,
-        address payable contractOwner,
-        address firstToken,
-        address secondToken,
-        address thirdToken,
-        MappingCampaignIdTo storage mappingCId // address payable alchemistAddr
+        MappingCampaignIdTo storage mappingCId, 
+        PackedVars1 memory packedVars1,
+        ContractFunded storage contractFundedInfo,
+        address caller
     )
-        // ) public returns (bool) {
         internal
-        returns (bool)
+        returns (TokenTemplate1 resultToken, uint256 liquidity)
     {
-        require(contractOwner != address(0), "invalid input addresses"); // no need to check firstToken, secondToken, thirdToken because backer can donate native token
         require(
             campaign.cStatus.campaignStatus == campaignStatusEnum.APPROVED
                 || campaign.cStatus.campaignStatus == campaignStatusEnum.APPROVED_UNLIMITED,
@@ -305,210 +303,190 @@ library GiveUpLib2 {
                 )
             )
         );
-        require(
-            keccak256(abi.encode(campaign.cStatus.acceptance)) != keccak256(abi.encode("FOL"))
-                || msg.sender == contractOwner,
-            "Code 'FOL': Campaign will convert all fund to Platform's token / NFT"
-        );
+        // require(
+        //     keccak256(abi.encode(campaign.cStatus.acceptance)) != keccak256(abi.encode("FOL"))
+        //         || msg.sender == contractOwner,
+        //     "Code 'FOL': Campaign will convert all fund to Platform's token / NFT"
+        // );
+        /**
+         * NOTE: NOT YET DEPLOY "FOL" CODE ABOVE ATM
+         * if acceptance text code is "FOL" -> only operator/ contract owner can call this function (Note: not deploy atm)
+         * if acceptance code != "FOL":
+         */
         address alchemistAddr = mappingCId.alchemist.addr;
         require(
-            (msg.sender == campaign.cId.raiser && campaign.cId.haveFundTarget > 0) || msg.sender == contractOwner
-                || msg.sender == alchemistAddr,
+            (
+                msg.sender == campaign.cId.raiser && campaign.cId.haveFundTarget > 0
+                    && campaign.cId.haveFundTarget < 100 && mappingCId.alchemist.addr != address(0)
+                    && mappingCId.alchemist.isApproved
+            ) || (msg.sender == campaign.cId.raiser && campaign.cId.haveFundTarget == 100)
+                || msg.sender == packedVars1.addressVars[0] || (msg.sender == alchemistAddr && alchemistAddr != address(0)),
             "Invalid Pay Out Right"
-        ); // new in V008: 1. phải xét tránh TH mọi người có thống nhất chuyển việc rút sang token khác vd FER, IAM? 2. raiser phải trừ TH haveFundTarget = 0 3. ngoài ra cho thêm alchemist rút
+        );
 
-        // return performPayout(campaign, campaignTax, contractOwner, firstToken, secondToken, thirdToken, alchemistAddr);
-        return performPayout(campaign, campaignTax, contractOwner, firstToken, secondToken, thirdToken, mappingCId);
+        // avoid reentrancy attack
+        require(
+            !campaign.cFunded.paidOut.nativeTokenPaidOut && !campaign.cFunded.paidOut.firstTokenPaidOut
+                && !campaign.cFunded.paidOut.secondTokenPaidOut && !campaign.cFunded.paidOut.thirdTokenPaidOut
+                && !campaign.cFunded.paidOut.equivalentUSDPaidOut
+        );
+
+        return performPayout(campaign, mappingCId, packedVars1, contractFundedInfo, caller);
     }
 
     /**
-     * chưa chống reentrancy để test slither
+     * createTokenContractForParticipantsSelfWithdraw()
+     * Called by: performPayout()
+     * create a token contract instance from TokenTemplate1 contract factory to record share for backers, raiser, alchemist. Also sending all raised funds to this newly created contract for backers, raiser, alchemist to withdraw LP token share later by themselves.
+     * Reference 1: See rule to create liquidity pool in the code
      */
-    function mintTokenToBackers(Campaign storage campaign, MappingCampaignIdTo storage mappingCId, TokenTemplate1 token)
-        internal
-    {
-        uint256 totalBackers = campaign.cFunded.voterAddr.length;
-        uint256 totalNativeTokenFunded = campaign.cFunded.amtFunded;
-        uint256 maxSupply = token.getMaxSupplyOfTokenTemplate1();
-        for (uint256 i = 0; i < totalBackers; i++) {
-            address backer = payable(campaign.cFunded.voterAddr[i]);
-            uint256 backerPct = (mappingCId.BackerNativeTokenFunded[backer] * 100) / totalNativeTokenFunded;
-            uint256 amt = (backerPct * maxSupply) / 100;
-            // token.mint(backer, amt)
-            try token.mint(backer, amt) {
-                // Successfully minted the token to the backer
-            } catch {
-                // Failed to mint the token to the backer, skip to the next backer
-                continue;
-            }
-        }
-    }
-
-    /**
-     * performCampaignTokenPayout:
-     */
-    function performCampaignTokenPayout(
+    function createTokenContractForParticipantsSelfWithdraw(
         Campaign storage campaign,
         MappingCampaignIdTo storage mappingCId,
-        ContractFunded storage contractFundedInfo
-    ) internal returns (bool) {
-        /**
-         * tạo token và return token address
-         */
-        string memory _symbol = mappingCId.resultToken.tokenSymbol;
-        if (bytes(_symbol).length == 0) {
-            return false;
-        }
-        string memory _name = mappingCId.resultToken.tokenName;
-        address tokenAddr =
-            GiveUpLib1.createCampaignFinalToken(_name, _symbol, campaign.cId.id, mappingCId, contractFundedInfo);
-        TokenTemplate1 token = TokenTemplate1(tokenAddr); // ERC20 token = ERC20(tokenAddr);
+        PackedVars1 memory packedVars1,
+        address caller
+    ) internal returns (TokenTemplate1 resultToken, uint256 liquidity) {
+        require(bytes(mappingCId.resultToken.tokenSymbol).length != 0, "please set token symbol first");
 
-        /* check haveFundTarget & pctForBackers
-        * check alchemist base on haveFundtarget and Alchemist proposal setting from raiser, community
-        * then mint token to backers, raiser
-        *         NOTE: 
-        *  - NOT YET CHECK IF A BACKER IS A CONTRACT THAT CAN NOT RECEIVE ERC20 TOKEN, IN THIS CASE IT JUST SKIP TO THE NEXT BACKER
-        *  - Alchemist DO NOT receive token because they only want to receive fund as payment for their services
+        /* Note Reference 1: RULE to create liquidity pool or TRANSFER RAISED FUND (after tax) TO RESULT TOKEN CONTRACT depen on:
+        * - if haveFundTarget = 100, don't add liquidity, transfer this deducted raised fund (include native token and whitelisted token) to result token contract and accredit to raiser, raiser will be able to withdraw their share later.
+        * - if haveFundTarget < 100, also transfer all fund to result token contract similar to above, and add initial liquidity to <result token-native token> pool, all participants later can withdraw the LP share by themselves. Raised whitelisted token can be handled later by community address/ operator.
         */
-        uint256 haveFundTarget = campaign.cId.haveFundTarget;
-        if (haveFundTarget == 100 || haveFundTarget == 0) {
-            mintTokenToBackers(campaign, mappingCId, token);
-            // if haveFundTarget == 100 raiser will receive 100% fund, don't receive token, no alchemist involved
-            // if haveFundTarget == 0 raiser receive nothing, alchemist involved and get fund percentage = (100 - pctForBackers) as fee for their service, not token
-        } else if (0 < haveFundTarget && haveFundTarget < 100) {
-            /**
-             * Mint token to backers and raiser
-             * only alchemist can receive fund (100 - pctForBackers) similar to 1st case
-             * LIQUIDITY pct = pctForBackers: send all raised fund after deduct fees to liquidity pool of this token
-             */
-            mintTokenToBackers(campaign, mappingCId, token);
-            uint256 raiserAmt =
-                ((100 - campaign.cId.pctForBackers) * token.getMaxSupplyOfTokenTemplate1() / 100) * haveFundTarget / 100;
-            token.mint(campaign.cId.raiser, raiserAmt);
-        } else {
-            revert("Invalid haveFundTarget value");
+
+        // update storage variable before passing to create campaign result token contract
+        uint256 nativeTokenFundAfterTax = campaign.cFunded.raisedFund.amtFunded
+            - GiveUpLib1.calculateTax(campaign.cFunded.raisedFund.amtFunded, packedVars1.uintVars[0]);
+        if (!campaign.cFunded.raiserPaidOut.processed && !campaign.cFunded.alchemistPaidOut.processed) {
+            if (caller == campaign.cId.raiser) {
+                campaign.cFunded.raiserPaidOut.processed = true; // prevent reentrancy attack
+                campaign.cFunded.raiserPaidOut.processedTime = block.timestamp;
+            } else if (caller == mappingCId.alchemist.addr) {
+                campaign.cFunded.alchemistPaidOut.processed = true; // prevent reentrancy attack
+                campaign.cFunded.alchemistPaidOut.processedTime = block.timestamp;
+            } else if (caller == packedVars1.addressVars[0]) {
+                emit GiveUpLib1.GeneralMsg("function called by contract owner");
+            } else {
+                revert("function called by invalid address");
+            }
+
+            if (campaign.cId.haveFundTarget == 100) {
+                if (campaign.cFunded.raisedFund.amtFunded > 0 && campaign.cFunded.paidOut.nativeTokenPaidOut) {
+                    // only raiser can get raised fund as below parameters when haveFundTarget = 100
+                    campaign.cFunded.raiserPaidOut.nativeTokenAmt = nativeTokenFundAfterTax;
+                    campaign.cFunded.raiserPaidOut.firstTokenAmt = campaign.cFunded.raisedFund.firstTokenFunded;
+                    campaign.cFunded.raiserPaidOut.secondTokenAmt = campaign.cFunded.raisedFund.secondTokenFunded;
+                    campaign.cFunded.raiserPaidOut.thirdTokenAmt = campaign.cFunded.raisedFund.thirdTokenFunded;
+                }
+            }
         }
-        return false;
+
+        // Create campaign result token contract and record raiser, alchemist share and inferrable backer share
+        CampaignNoBacker memory campaignNoBacker = GiveUpLib1.getNoBackersCampaign(campaign);
+        address payable resultTokenAddress = GiveUpLib1.createCampaignFinalToken(
+            mappingCId.resultToken.tokenName,
+            mappingCId.resultToken.tokenSymbol,
+            campaignNoBacker,
+            mappingCId,
+            packedVars1.addressVars[0] // contract owner
+        );
+        require(resultTokenAddress != address(0), "create campaign result token failed");
+        resultToken = TokenTemplate1(resultTokenAddress);
+        // set whitelisted token addresses correspondingly with GiveUp contract at this moment
+        for (uint256 i = 1; i < 4; i++) {
+            if (packedVars1.addressVars[i] != address(0)) {
+                resultToken.initWhiteListTokenAddr(i, packedVars1.addressVars[i]);
+            }
+        }
+
+        // sending fund or create liquidity depend on haveFundTarget setting
+        if (campaign.cId.haveFundTarget < 100) {
+            liquidity = resultToken.addInitialLiquidityETH_1{value: nativeTokenFundAfterTax}(); // already check return value > 0 in the function
+        } else if (campaign.cId.haveFundTarget == 100) {
+            liquidity = 0;
+            (bool success,) = payable(resultTokenAddress).call{value: nativeTokenFundAfterTax}("");
+            require(success, "Transfer native token (credited to raiser) to result token contract failed");
+        }
     }
 
     /**
-     * IS LIBRARY OF payOutCampaign function
-     * Perform Payout Rule: simply check
-     * - haveFundTarget = 100, Raiser don't need to update Alchemist to pay out.
-     * - haveFundTarget < 100, Raiser need to have Alchemist's address to pay out.
+     * performPayout()
+     * Called by: payOutCampaign function
+     * Will call: createTokenContractForParticipantsSelfWithdraw()
+     * performPayout Rule:
+     * - haveFundTarget = 100 (donation campaign), Raiser don't need to update Alchemist to pay out. Raiser will receive 100% of the fund while backer and alchemist (if any) will get 100% of campaign token
+     * - haveFundTarget < 100, Raiser need to have Alchemist's address to pay out, ALL PARTIES RECEIVE CAMPAIGN TOKEN/ LP TOKEN SHARE, RAISED FUND (focus on native token) WILL BE USED TO CREATE LIQUIDITY POOL. There're 2 sub cases:
+     * -- if haveFundTarget = 0, Raiser will receive nothing, Alchemist involved and get LP token = (100 - pctForBackers) * totalSupply / 100.
+     * -- if haveFundTarget > 0, Raiser will receive LP token = ((100 - pctForBackers) * haveFundTarget / 100) * totalSupply / 100. Alchemist involved and get percentage = ((100 - pctForBackers) * (100 - haveFundTarget) / 100) * totalSupply / 100.
+     * -- In this 2 sub cases, backer will receive LP token = pctForBackers * totalSupply / 100.
+     * The performPayout function will also create campaign result token contract upon success. AND EVERY PARTICIPANT MUST TAKE THEIR OWN RESPONSIBILITY TO WITHDRAW THEIR TOKEN SHARE LATER.
+     * Please see inline code comment for more detail
      */
     function performPayout(
         Campaign storage campaign,
-        uint256 campaignTax,
-        address payable contractOwner,
-        address firstToken,
-        address secondToken,
-        address thirdToken,
-        MappingCampaignIdTo storage mappingCId // address payable alchemistAddr
-    ) internal returns (bool result) {
-        result = false;
-        address alchemistAddr = mappingCId.alchemist.addr;
-        // if (campaign.cFunded.amtFunded > 0) { // v129
-        if (campaign.cFunded.amtFunded > 0 && campaign.cFunded.paidOut.nativeTokenPaidOut == false) {
-            uint256 amtFunded = campaign.cFunded.amtFunded;
-            // campaign.cFunded.amtFunded = 0; // v129
-            campaign.cFunded.paidOut.nativeTokenPaidOut = true;
-            uint256 tax_amt = GiveUpLib1.calculateTax(amtFunded, campaignTax);
-            uint256 payingRaiser = GiveUpLib1.calculateTax((amtFunded - tax_amt), campaign.cId.haveFundTarget);
-
-            (bool sent_raiser,) = payable(campaign.cId.raiser).call{value: (payingRaiser)}("");
-            require(sent_raiser, "Payout raiser failed");
-            if (campaignTax > 0) {
-                (bool sent_platform,) = payable(contractOwner).call{value: tax_amt}("");
-                require(sent_platform, "Payout platform failed");
-            }
-            if (campaign.cId.haveFundTarget < 100) {
-                (bool sent_alchemist,) = payable(alchemistAddr).call{value: (amtFunded - tax_amt - payingRaiser)}("");
-                require(sent_alchemist, "Payout alchemist failed");
-            }
+        MappingCampaignIdTo storage mappingCId,
+        PackedVars1 memory packedVars1,
+        ContractFunded storage contractFundedInfo,
+        address caller
+    ) internal returns (TokenTemplate1 resultToken, uint256 liquidity) {
+        // Firstly, check if there're any native token raised, if yes turn on paidOut flag of native token and start processing payout
+        if (campaign.cFunded.raisedFund.amtFunded > 0) {
+            campaign.cFunded.paidOut.nativeTokenPaidOut = true; // prevent reentrancy attack at outside caller function
         }
 
-        // if (campaign.cFunded.firstTokenFunded > 0) { // v129
-        if (campaign.cFunded.firstTokenFunded > 0 && campaign.cFunded.paidOut.firstTokenPaidOut == false) {
-            ERC20 token = ERC20(firstToken);
-            uint256 tokenFunded = campaign.cFunded.firstTokenFunded;
-            // campaign.cFunded.firstTokenFunded = 0; // v129
-            campaign.cFunded.paidOut.firstTokenPaidOut = true;
+        // Secondly, call createTokenContractForParticipantsSelfWithdraw() to create token contract for participants self withdraw + create liquidity pool for everyone if haveFundTarget < 100 / transfer all raised native token (after tax) to result token contract if haveFundTarget = 100 for raiser to self-withdraw
+        (resultToken, liquidity) = createTokenContractForParticipantsSelfWithdraw(
+            campaign,
+            mappingCId,
+            packedVars1,
+            caller
+        ); // already check resultToken != address(0) inside this function
 
-            uint256 tax_amt = GiveUpLib1.calculateTax(tokenFunded, campaignTax);
-            uint256 payingRaiser = GiveUpLib1.calculateTax((tokenFunded - tax_amt), campaign.cId.haveFundTarget);
-            if (campaignTax > 0) {
-                token.approve(contractOwner, tax_amt);
-                token.transfer(contractOwner, tax_amt);
-            }
+        // Thirdly, transfer all whitelisted token to result token contract after having result token contract address
+        /**
+         * BIG NOTE: PLATFORM DON'T GET FEE FROM WHITELISTED TOKEN CONTRIBUTIONS IF:
+         * - business logic use native token as official mean of contribution and whitelisted token as DONATION/TIP. This is the intended design.
+         * In the future if business logic change to use whitelisted token as official mean of contribution then they'll be taxed like native token.
+         */
+        if (campaign.cFunded.raisedFund.firstTokenFunded > 0) {
+            ERC20 firstPriorityToken = ERC20(packedVars1.addressVars[1]);
+            campaign.cFunded.paidOut.firstTokenPaidOut = true; 
 
-            token.approve(campaign.cId.raiser, payingRaiser);
-            token.transfer(campaign.cId.raiser, payingRaiser);
-
-            if (campaign.cId.haveFundTarget < 100) {
-                token.approve(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-                token.transfer(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-            }
+            firstPriorityToken.approve(payable(address(resultToken)), campaign.cFunded.raisedFund.firstTokenFunded);
+            firstPriorityToken.transfer(payable(address(resultToken)), campaign.cFunded.raisedFund.firstTokenFunded);
         }
 
-        // if (campaign.cFunded.secondTokenFunded > 0) { // v129
-        if (campaign.cFunded.secondTokenFunded > 0 && campaign.cFunded.paidOut.secondTokenPaidOut == false) {
-            ERC20 token = ERC20(secondToken);
-            uint256 tokenFunded = campaign.cFunded.secondTokenFunded;
-            // campaign.cFunded.secondTokenFunded = 0; // v129
+        if (campaign.cFunded.raisedFund.secondTokenFunded > 0) {
+            ERC20 secondPrioritytoken = ERC20(packedVars1.addressVars[2]);
             campaign.cFunded.paidOut.secondTokenPaidOut = true;
 
-            // làm tương tự firstTokenFunded bên trên
-            uint256 tax_amt = GiveUpLib1.calculateTax(tokenFunded, campaignTax);
-            uint256 payingRaiser = GiveUpLib1.calculateTax((tokenFunded - tax_amt), campaign.cId.haveFundTarget);
-            if (campaignTax > 0) {
-                token.approve(contractOwner, tax_amt);
-                token.transfer(contractOwner, tax_amt);
-            }
-
-            token.approve(campaign.cId.raiser, payingRaiser);
-            token.transfer(campaign.cId.raiser, payingRaiser);
-
-            if (campaign.cId.haveFundTarget < 100) {
-                token.approve(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-                token.transfer(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-            }
+            secondPrioritytoken.approve(payable(address(resultToken)), campaign.cFunded.raisedFund.secondTokenFunded);
+            secondPrioritytoken.transfer(payable(address(resultToken)), campaign.cFunded.raisedFund.secondTokenFunded);
         }
 
-        // if (campaign.cFunded.thirdTokenFunded > 0) { // v129
-        if (campaign.cFunded.thirdTokenFunded > 0 && campaign.cFunded.paidOut.thirdTokenPaidOut == false) {
-            ERC20 token = ERC20(thirdToken);
-            uint256 tokenFunded = campaign.cFunded.thirdTokenFunded;
-            // campaign.cFunded.thirdTokenFunded = 0; // v129
-            campaign.cFunded.paidOut.thirdTokenPaidOut = true;
+        if (campaign.cFunded.raisedFund.thirdTokenFunded > 0) {
+            ERC20 thirdPriorityToken = ERC20(packedVars1.addressVars[3]);
+            campaign.cFunded.paidOut.thirdTokenPaidOut = true; 
 
-            // làm tương tự firstTokenFunded bên trên
-            uint256 tax_amt = GiveUpLib1.calculateTax(tokenFunded, campaignTax);
-            uint256 payingRaiser = GiveUpLib1.calculateTax((tokenFunded - tax_amt), campaign.cId.haveFundTarget);
-            if (campaignTax > 0) {
-                token.approve(contractOwner, tax_amt);
-                token.transfer(contractOwner, tax_amt);
-            }
-
-            token.approve(campaign.cId.raiser, payingRaiser);
-            token.transfer(campaign.cId.raiser, payingRaiser);
-
-            if (campaign.cId.haveFundTarget < 100) {
-                token.approve(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-                token.transfer(alchemistAddr, tokenFunded - tax_amt - payingRaiser);
-            }
+            thirdPriorityToken.approve(payable(address(resultToken)), campaign.cFunded.raisedFund.thirdTokenFunded);
+            thirdPriorityToken.transfer(payable(address(resultToken)), campaign.cFunded.raisedFund.thirdTokenFunded);
         }
+
+        // finally update related storage variable
         campaign.cStatus.campaignStatus = campaignStatusEnum.PAIDOUT;
-        result = true;
-        return result;
+        mappingCId.resultToken.tokenIndex = contractFundedInfo.totalCampaignToken;
+        mappingCId.resultToken.tokenAddr = address(resultToken);
+        mappingCId.resultToken.tokenSymbol = resultToken.symbol();
+        mappingCId.resultToken.tokenName = resultToken.name();
     }
 
     /* Note: only ultilize some beginning field of input array, e.g _content array only use 4 first elements
+    * NOTE EXCEPTION RULE: if haveFundTarget == 0, then ALL FUND TARGET WILL ALSO == 0 !!! WHATSOEVER
+    * TODO: when haveFundTarget = 0,still deploy mechanism for raiser to set campaign fund target and deadline like normal campaign (for management purpose).
+    * TODO BIG TODO QUESTION: handle case when raiser address is contract and can not receive native token (e.g: WETH)
     */
     function createCampaign(
         uint256 _haveFundTarget, // percentage for raiser, 0% = non profit/long term, 100=100% = tip/donation/no return ect
-        uint256 _pctForBackers, // v129
+        uint256 _pctForBackers, // Note VIP parameter: raiser & alchemist only get the remain after deducting _pctForBackers, e.g: _pctForBackers = 100, raiser & alchemist will get 0% (NOTHING) of fund raised; _pctForBackers = 0, raiser & alchemist will get 100% of fund raised; _pctForBackers = 50, raiser & alchemist will get 50% of fund raised etc.
         string[] memory _content, // 0.campaignType, 1.title, 2.description, 3.image
         string[] memory _options, // can be blank for basic campaign purpose, max 4 options by struct C_Options
         uint256[] memory _timeline, // startAt, deadline
@@ -518,7 +496,7 @@ library GiveUpLib2 {
         uint256 _id, // store settingId from main contract
         Campaign storage campaign
     ) public returns (bool) {
-        require( // _startAt -> _timeline[0] ...
+        require( //  _timeline[0] is _startAt param ...
         _timeline[0] >= block.timestamp && _timeline[0] < _timeline[1], "start time and deadline invalid");
         require(
             bytes(_content[1]).length > 0 || bytes(_content[2]).length > 0 || bytes(_content[3]).length > 0,
@@ -533,8 +511,8 @@ library GiveUpLib2 {
             raiser: payable(msg.sender),
             group: _group,
             deList: _deList,
-            haveFundTarget: _haveFundTarget, // new in V006 10_1
-            pctForBackers: _pctForBackers // v129
+            haveFundTarget: _haveFundTarget,
+            pctForBackers: _pctForBackers
         });
         campaign.cInfo = C_Info({
             campaignType: _content[0],
@@ -547,11 +525,11 @@ library GiveUpLib2 {
         });
         // only set specific fund target if _haveFundTarget > 0
         if (_haveFundTarget > 0) {
-            campaign.cFunded.target = _fund[0];
-            campaign.cFunded.firstTokenTarget = _fund[1];
-            campaign.cFunded.secondTokenTarget = _fund[2];
-            campaign.cFunded.thirdTokenTarget = _fund[3];
-            campaign.cFunded.equivalentUSDTarget = _fund[4];
+            campaign.cFunded.raisedFund.target = _fund[0];
+            campaign.cFunded.raisedFund.firstTokenTarget = _fund[1];
+            campaign.cFunded.raisedFund.secondTokenTarget = _fund[2];
+            campaign.cFunded.raisedFund.thirdTokenTarget = _fund[3];
+            campaign.cFunded.raisedFund.equivalentUSDTarget = _fund[4];
         }
 
         campaign.cOptions =
@@ -562,11 +540,7 @@ library GiveUpLib2 {
         return true;
     }
 
-    function signAcceptance(
-        Campaign storage campaign,
-        address payable alchemistAddr,
-        string memory _acceptance // ) internal {
-    )
+    function signAcceptance(Campaign storage campaign, address payable alchemistAddr, string memory _acceptance)
         // ) public {
         internal
     {
@@ -579,7 +553,7 @@ library GiveUpLib2 {
         require(
             (alchemistAddr != address(0) && alchemistAddr == msg.sender && campaign.cId.haveFundTarget <= 50)
                 || (campaign.cId.raiser == msg.sender && campaign.cId.haveFundTarget > 50),
-            "wrong rule logic"
+            "signer is not the one who has higher share of payout"
         );
 
         campaign.cStatus.acceptance = _acceptance;
@@ -592,6 +566,7 @@ library GiveUpLib2 {
         uint256 _id,
         uint256 _voteOption,
         mapping(uint256 => mapping(address => mapping(uint256 => VoteData))) storage campaignOptionsVoted,
+        mapping(uint256 => mapping(uint256 => address)) storage campaignVoter,
         Campaign storage campaign
     ) internal returns (bool) {
         bool deleteSuccess = false;
@@ -645,20 +620,32 @@ library GiveUpLib2 {
 
             // in case this is the last vote of voter, then delete voter's address from voter's list
             if (totalVote == 1 && deleteSuccess) {
-                (, uint256 index) =
-                    GiveUpLib1.findAddressIndex(msg.sender, new address[](0), campaign.cFunded.voterAddr);
-
-                /* NEED TO TEST DoS when using findAddressIndex function because it use for loop to find index
-                */
-                if (index < campaign.cFunded.voterAddr.length - 1) {
-                    // Move the last element to the index to be removed
-                    campaign.cFunded.voterAddr[index] =
-                        campaign.cFunded.voterAddr[campaign.cFunded.voterAddr.length - 1];
-                    // Remove the last element
-                    campaign.cFunded.voterAddr.pop();
-                } else if (index == campaign.cFunded.voterAddr.length - 1) {
-                    campaign.cFunded.voterAddr.pop();
+                // note: new code that replace voterAddr and may save some gas
+                uint256 length = campaign.cFunded.voterCount;
+                for (uint256 i = 0; i < length; i++) {
+                    if (campaignVoter[_id][i] == msg.sender) {
+                        campaignVoter[_id][i] = campaignVoter[_id][length - 1];
+                        delete campaignVoter[_id][length - 1];
+                        break;
+                    }
                 }
+                campaign.cFunded.voterCount -= 1;
+
+                // // old code of voterAddr to be replaced
+                // (, uint256 index) =
+                //     GiveUpLib1.findAddressIndex(msg.sender, new address[](0), campaign.cFunded.voterAddr);
+
+                // /* NEED TO TEST DoS when using findAddressIndex function because it use for loop to find index
+                // */
+                // if (index < campaign.cFunded.voterAddr.length - 1) {
+                //     // Move the last element to the index to be removed
+                //     campaign.cFunded.voterAddr[index] =
+                //         campaign.cFunded.voterAddr[campaign.cFunded.voterAddr.length - 1];
+                //     // Remove the last element
+                //     campaign.cFunded.voterAddr.pop();
+                // } else if (index == campaign.cFunded.voterAddr.length - 1) {
+                //     campaign.cFunded.voterAddr.pop();
+                // }
             }
         }
 
@@ -666,40 +653,32 @@ library GiveUpLib2 {
     }
 
     /* depend on campaign's status and other conditions that:
-    - raiser can DELETE the campaign and REFUND all backer with RAISER_DELETE_ALL_CODE
+    - raiser can DELETE the campaign and REFUND all backer with `RAISER_DELETE_ALL_CODE`
     - everyone can withdraw A SPECIFIC vote option.
-    - everyone can withdraw ALL vote options with BACKER_WITHDRAW_ALL_CODE
+    - everyone can withdraw ALL her vote options with `BACKER_WITHDRAW_ALL_CODE`
     */
     function requestRefund(
-        SimpleRequestRefundVars memory simpleVars,
+        PackedVars1 memory packedVars1,
         Campaign storage campaign,
         mapping(uint256 => mapping(address => mapping(uint256 => VoteData))) storage campaignOptionsVoted,
         ContractFunded storage contractFundedInfo,
-        // v129 below mapping cIdTo will depricate campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded, campaignDonatorTokenFunded, campaignOptionTokenFunded
         MappingCampaignIdTo storage cIdTo,
-        // mapping(uint256 => mapping(address => mapping(address => uint256))) storage campaignDonatorTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => mapping(address => uint256))) storage campaignOptionTokenFunded, // v129
-        // // mapping(string => address) storage whitelistedTokens, // v129: no need because refund don't check wl token
-        // mapping(uint256 => mapping(address => uint256)) storage campaignDonatorNativeTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => uint256)) storage campaignOptionNativeTokenFunded, // v129
-        mapping(address => string) storage tokenAddrToPriority
+        mapping(address => string) storage tokenAddrToPriority,
+        mapping(uint256 => mapping(uint256 => address)) storage campaignVoter
     )
-        // uint256 numberOfCampaignsExcludeRefunded
-        // public
         internal
         returns (
-            // returns (string memory reportString, bool timelockForRefund)
             string memory reportString,
-            bool isTimelockForRefund,
-            TimeLockStatus returnTimeLockStatus
+            bool isTimelockForRefund, // (not yet implement)
+            TimeLockStatus returnTimeLockStatus // (not yet implement)
         )
     {
-        // simpleVars.addressVars[0] contain platform/ contract owner address
+        // Note: packedVars1.addressVars[0] contain platform/ contract owner address
         // that temporary allowed to delete on going campaign so I add it here
-        // there's another checking in checkDeletableCampaign() afterward but for contract owner to be able to delete when campaign is not going on.
+        // there's another checking in checkDeletableCampaign() afterward to support the work flow.
         require(
             (
-                msg.sender == simpleVars.addressVars[0]
+                msg.sender == packedVars1.addressVars[0]
                     || campaign.cStatus.campaignStatus == campaignStatusEnum.REVERTING
                     || (
                         (
@@ -708,7 +687,7 @@ library GiveUpLib2 {
                         )
                             && (
                                 campaign.cInfo.deadline < block.timestamp || block.timestamp < campaign.cInfo.startAt
-                                    || simpleVars.earlyWithdraw
+                                    || packedVars1.earlyWithdraw
                             )
                     )
             ),
@@ -721,46 +700,21 @@ library GiveUpLib2 {
             )
         );
 
-        uint256 totalNumber; // number of funds to be refunded
-        // string memory reportString;
-        // there's important upgrade from v12.3
+        uint256 totalNumber; // number of contributions to be refunded
         // First performRefund occur when backer withdraw his fund when campaign failed to meet target
-        if (simpleVars.uintVars[1] != RAISER_DELETE_ALL_CODE) {
-            if (!simpleVars.earlyWithdraw) {
-                // Withdrawal when campaign failed
-                (totalNumber,,) = performRefund(
-                    simpleVars,
-                    campaign,
-                    REVERTING,
-                    contractFundedInfo,
-                    cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                    // campaignDonatorTokenFunded,
-                    // campaignOptionTokenFunded,
-                    // // whitelistedTokens, // v129 depricated
-                    // campaignDonatorNativeTokenFunded,
-                    // campaignOptionNativeTokenFunded,
-                    tokenAddrToPriority
-                );
-                // numberOfCampaignsExcludeRefunded
-                // Second performRefund occur when backer withdraw early: using EARLY_WITHDRAW code
+        if (packedVars1.uintVars[1] != RAISER_DELETE_ALL_CODE) {
+            if (!packedVars1.earlyWithdraw) {
+                // Withdrawal when campaign failed (mean it's a natural withdraw, not early withdraw -> we'll not delete vote history)
+                (totalNumber,,) =
+                    performRefund(packedVars1, campaign, REVERTING, contractFundedInfo, cIdTo, tokenAddrToPriority);
             } else {
-                // bool registerEarlyWithdraw = false;
-                (totalNumber, isTimelockForRefund, returnTimeLockStatus) = performRefund(
-                    simpleVars,
-                    campaign,
-                    EARLY_WITHDRAW,
-                    contractFundedInfo,
-                    cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                    // campaignDonatorTokenFunded,
-                    // campaignOptionTokenFunded,
-                    // // whitelistedTokens, // v129 depricated
-                    // campaignDonatorNativeTokenFunded, // v129
-                    // campaignOptionNativeTokenFunded, // v129
-                    tokenAddrToPriority
-                );
+                // Early Withdrawal -> need to clear vote history (only clear them in this situation)
+                (totalNumber, isTimelockForRefund, returnTimeLockStatus) =
+                    performRefund(packedVars1, campaign, EARLY_WITHDRAW, contractFundedInfo, cIdTo, tokenAddrToPriority);
 
                 /////////////// v129 - 240807 ////////////////////////
                 /**
+                 * Note: below if code is not yet implement but reserve for future reference.
                  * check for cases when backer registered to withdraw successfully but not actually withdraw yet (TimeLockStatus.Registered) or in waiting timeframe (TimeLockStatus.Waiting) then return immidiately to avoid remove vote options
                  */
                 if (
@@ -772,32 +726,37 @@ library GiveUpLib2 {
                     return (toString(totalNumber), isTimelockForRefund, returnTimeLockStatus); // there's `true` timelock at index `totalNumber` w/ status `returnTimeLockStatus`
                 }
 
-                // numberOfCampaignsExcludeRefunded
                 // handle EARLY_WITHDRAW of vote option (V006 10.9)
-                if (simpleVars.uintVars[1] == BACKER_WITHDRAW_ALL_CODE) {
+                if (packedVars1.uintVars[1] == BACKER_WITHDRAW_ALL_CODE) {
                     for (uint256 i = 0; i < 5; i++) {
-                        // campaignOptionsVoted[simpleVars.uintVars[0]][msg.sender][i] = VoteData(0,"");  // reset cách 1 ok
-                        delete campaignOptionsVoted[simpleVars.uintVars[0]][
+                        // campaignOptionsVoted[packedVars1.uintVars[0]][msg.sender][i] = VoteData(0,"");  // reset cách 1 ok
+                        delete campaignOptionsVoted[packedVars1.uintVars[0]][
                             msg.sender
                         ][i]; // reset cách 2 ok
                     }
-                    // campaign.cFunded.voterAddr -= 1;
-                    (, uint256 index) =
-                        GiveUpLib1.findAddressIndex(msg.sender, new address[](0), campaign.cFunded.voterAddr);
 
-                    /* NEED TO TEST DoS when using findAddressIndex function because it use for loop to find index
-                    */
+                    // note: new code that replace voterAddr and may save some gas
+                    // TODO: below for loop need to check for gas optimization
+                    uint256 length = campaign.cFunded.voterCount;
+                    uint256 _id = packedVars1.uintVars[0];
+                    for (uint256 i = 0; i < length; i++) {
+                        if (campaignVoter[_id][i] == msg.sender) {
+                            campaignVoter[_id][i] = campaignVoter[_id][length - 1];
+                            delete campaignVoter[_id][length - 1];
+                            break;
+                        }
+                    }
+                    campaign.cFunded.voterCount -= 1;
 
-                    // Move the last element to the index to be removed
-                    campaign.cFunded.voterAddr[index] =
-                        campaign.cFunded.voterAddr[campaign.cFunded.voterAddr.length - 1];
-                    // Remove the last element
-                    campaign.cFunded.voterAddr.pop();
                     reportString = "Removed ALL vote options";
                 } else {
                     if (
                         removeOptionsVoted(
-                            simpleVars.uintVars[0], simpleVars.uintVars[1], campaignOptionsVoted, campaign
+                            packedVars1.uintVars[0],
+                            packedVars1.uintVars[1],
+                            campaignOptionsVoted,
+                            campaignVoter,
+                            campaign
                         )
                     ) {
                         reportString = "Remove vote option SUCCESS";
@@ -808,32 +767,19 @@ library GiveUpLib2 {
             }
             // Third performRefund occur when RAISER want to DELETE (cancel) his campaign and refund to backers
         } else {
-            if (GiveUpLib1.checkDeletableCampaign(campaign, simpleVars.addressVars[0])) {
-                (totalNumber,,) = performRefund(
-                    simpleVars,
-                    campaign,
-                    DELETED,
-                    contractFundedInfo,
-                    cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                    // campaignDonatorTokenFunded,
-                    // campaignOptionTokenFunded,
-                    // // whitelistedTokens, // v129 depricated
-                    // campaignDonatorNativeTokenFunded, // v129
-                    // campaignOptionNativeTokenFunded, // v129
-                    tokenAddrToPriority
-                );
-                // numberOfCampaignsExcludeRefunded
-                // new in 12.3: add checking if raiser is allowed to DELETE and refund campaign
+            if (GiveUpLib1.checkDeletableCampaign(campaign, packedVars1.addressVars[0])) {
+                (totalNumber,,) =
+                    performRefund(packedVars1, campaign, DELETED, contractFundedInfo, cIdTo, tokenAddrToPriority);
             }
         }
 
         if (totalNumber > 0) {
-            reportString = string(abi.encodePacked("Proscessed ", toString(totalNumber), " donation(s)"));
+            reportString = string(abi.encodePacked("Processed ", toString(totalNumber), " donation(s)"));
             emit GiveUpLib1.GeneralMsg(
                 string(
                     abi.encodePacked(
                         "SUCCESSFULLY REFUND cId ",
-                        toString(simpleVars.uintVars[0]),
+                        toString(packedVars1.uintVars[0]),
                         ", msg.sender: ",
                         convertAddressToString(msg.sender),
                         ", timestamp: ",
@@ -851,161 +797,100 @@ library GiveUpLib2 {
      * The performRefund function is used to initiate the refund process for a campaign based on the given reason.
      * It performs refunds for backers of the campaign who have contributed funds.
      * If the reason is DELETED (initiated by the campaign raiser/ operator), refunds are performed for all backers.
-     * If the reason is REVERTING (initiated by a backer), refunds are performed only for the specific backer only after campaign expired with failure.
-     * If the reason is EARLY_WITHDRAW (initiated by a backer), refunds are performed for backer even when campaign is going on.
+     * If the reason is REVERTING (called by a backer), refunds are performed for that backer only after campaign expired with failure.
+     * If the reason is EARLY_WITHDRAW (called by a backer), refunds are performed for that backer even when campaign is going on (but not yet success).
      * It simply loop through ALL backer, check refund condition (such as: all or specific option) and perform refund by calling singleRefund.
      * After the refunds are processed, the refundCompleted function is called to update the campaign status.
      * @param _reason The reason for the refund (must be 3 constants: EARLY_WITHDRAW, DELETED or REVERTING).
-     * @return totalNumber : The number of funds to be refunded.
-     * @return isTimelockForRefund : true mean backer enter refund process, it'll change some stages in backer's fundInfo variable such as: TimeLockStatus.Registered, TimeLockStatus.Waiting, ... to prevent front running
-     * @return returnTimeLockStatus : The status of the refund process.
+     * @return totalNumber : The number of contributions to be refunded.
+     * @return isTimelockForRefund : true mean backer enter refund process, it'll change some stages in backer's fundInfo variable such as: TimeLockStatus.Registered, TimeLockStatus.Waiting, ... to prevent front running (not yet implement)
+     * @return returnTimeLockStatus : The status of the refund process. (not yet implement)
      */
     function performRefund(
-        SimpleRequestRefundVars memory simpleVars,
+        PackedVars1 memory packedVars1,
         Campaign storage campaign,
         string memory _reason,
         ContractFunded storage contractFundedInfo,
-        // v129 below mapping cIdTo will depricate campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded, campaignDonatorTokenFunded, campaignOptionTokenFunded
         MappingCampaignIdTo storage cIdTo,
-        // mapping(uint256 => mapping(address => mapping(address => uint256))) storage campaignDonatorTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => mapping(address => uint256))) storage campaignOptionTokenFunded, // v129
-        // // mapping(string => address) storage whitelistedTokens, // v129: no need because refund don't check wl token
-        // mapping(uint256 => mapping(address => uint256)) storage campaignDonatorNativeTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => uint256)) storage campaignOptionNativeTokenFunded, // v129
         mapping(address => string) storage tokenAddrToPriority
-    )
-        // uint256 numberOfCampaignsExcludeRefunded
-        internal
-        returns (
-            // returns (uint256 totalNumber, bool timelockForRefund)
-            // returns (uint256 totalNumber, bool timelockForRefund, string memory returnRefundStatus)
-            uint256 totalNumber,
-            bool isTimelockForRefund,
-            TimeLockStatus returnTimeLockStatus
-        )
-    {
-        require(simpleVars.addressVars[2] == msg.sender, "temp extra test");
-        // uint256[] memory refundList = new uint256[](campaign.cFunded.totalDonating); // save indexes
-        // uint256 refundListCounter;
-        // bool timeLockFound;
-        // uint256 latestTimeLockIndex;
-        // TimeLockStatus lastTimeLockStatus;
+    ) internal returns (uint256 totalNumber, bool isTimelockForRefund, TimeLockStatus returnTimeLockStatus) {
 
         // if reason is EARLY_WITHDRAW, we will not call refundCompleted function and exit performRefund
         if (keccak256(bytes(_reason)) == keccak256(bytes(EARLY_WITHDRAW))) {
-            // v129 - 240811 deploy refund for `EARLY_WITHDRAW` above base on refundList, refundListCounter or return failure notice base on timeLockFound.
-            (bool timeLockFound, uint256 latestTimeLockIndex, TimeLockStatus lastTimeLockStatus, uint256[] memory refundList, uint256 refundListCounter) = GiveUpLib1.deployTimeLock(campaign, simpleVars);
-            if (timeLockFound) {
-                return (latestTimeLockIndex, true, lastTimeLockStatus); // meet timelock (return true) at index i w/ timeLockStatus
-            } else if (refundListCounter > 0) {
-                for (uint256 i = 0; i < refundListCounter; i++) {
-                    if (
-                        singleRefund(
-                            simpleVars,
-                            refundList[i],
-                            true,
-                            campaign,
-                            contractFundedInfo,
-                            cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                            // campaignDonatorTokenFunded,
-                            // campaignOptionTokenFunded,
-                            // // whitelistedTokens, // v129 depricated
-                            // campaignDonatorNativeTokenFunded, // v129
-                            // campaignOptionNativeTokenFunded, // v129
-                            tokenAddrToPriority
-                        )
-                    ) {
-                        totalNumber += 1;
+            // (delete old code about timelock)
+
+            for (uint256 i = 0; i < campaign.cFunded.raisedFund.totalDonating; i++) {
+                if (campaign.cBacker[i].backer == msg.sender && !campaign.cBacker[i].fundInfo.refunded) {
+                    // refund base on backer's vote option code (uintVars[1])
+                    if (packedVars1.uintVars[1] == BACKER_WITHDRAW_ALL_CODE) {
+                        if (
+                            singleRefund(packedVars1, i, true, campaign, contractFundedInfo, cIdTo, tokenAddrToPriority)
+                        ) {
+                            totalNumber += 1;
+                        }
+                    } else if (0 <= packedVars1.uintVars[1] && packedVars1.uintVars[1] <= 4) {
+                        // code 0-4: backer want to withdraw 1 SPECIFIC vote option => have to find if this option exists, if yes => increase totalNumber variable
+                        if (campaign.cBacker[i].voteOption == packedVars1.uintVars[1]) {
+                            if (
+                                singleRefund(
+                                    packedVars1, i, true, campaign, contractFundedInfo, cIdTo, tokenAddrToPriority
+                                )
+                            ) {
+                                totalNumber += 1;
+                            }
+                        }
                     }
                 }
             }
-            return (totalNumber, false, returnTimeLockStatus); // don't call refundCompleted
+            return (totalNumber, false, returnTimeLockStatus); // don't call refundCompleted because EARLY_WITHDRAW is different.
         }
 
         // if reason is DELETED or REVERTING will proceed then call refundCompleted function before exit performRefund
         if (keccak256(bytes(_reason)) == keccak256(bytes(DELETED))) {
             // refund all backers
-            for (uint256 i = 0; i < campaign.cFunded.totalDonating; i++) {
-                if (
-                    singleRefund(
-                        simpleVars,
-                        i,
-                        false,
-                        campaign,
-                        contractFundedInfo,
-                        cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                        // campaignDonatorTokenFunded,
-                        // campaignOptionTokenFunded,
-                        // // whitelistedTokens, // v129 depricated
-                        // campaignDonatorNativeTokenFunded, // v129
-                        // campaignOptionNativeTokenFunded, // v129
-                        tokenAddrToPriority
-                    )
-                ) {
+            for (uint256 i = 0; i < campaign.cFunded.raisedFund.totalDonating; i++) {
+                if (singleRefund(packedVars1, i, false, campaign, contractFundedInfo, cIdTo, tokenAddrToPriority)) {
                     totalNumber += 1;
                 }
             }
         } else if (keccak256(bytes(_reason)) == keccak256(bytes(REVERTING))) {
             /**
-             * NEXT: OPTIMIZE REVERTING by combining all donations of a backer if needed ?
-             * CAUTION / Q: DoS when campaign.cFunded.totalDonating is big ???
+             * Question: OPTIMIZE REVERTING by combining all donations of a backer if needed ?
+             * Todo: test DoS & gas saving when campaign.cFunded.totalDonating is big enough???
              */
             // refund for msg.sender only
-            for (uint256 i = 0; i < campaign.cFunded.totalDonating; i++) {
+            for (uint256 i = 0; i < campaign.cFunded.raisedFund.totalDonating; i++) {
                 if (campaign.cBacker[i].backer == msg.sender) {
-                    if (
-                        singleRefund(
-                            simpleVars,
-                            i,
-                            false,
-                            campaign,
-                            contractFundedInfo,
-                            cIdTo, // v129 will depricate below variables: campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded...
-                            // campaignDonatorTokenFunded,
-                            // campaignOptionTokenFunded,
-                            // // whitelistedTokens, // v129 depricated
-                            // campaignDonatorNativeTokenFunded, // v129
-                            // campaignOptionNativeTokenFunded, // v129
-                            tokenAddrToPriority
-                        )
-                    ) {
+                    if (singleRefund(packedVars1, i, false, campaign, contractFundedInfo, cIdTo, tokenAddrToPriority)) {
                         totalNumber += 1;
                     }
                 }
             }
         }
 
-        // call refundCompleted function depend on totalNumber variable
+        // call refundCompleted function depend on totalNumber variable, this part handle status and totalFundedCampaign.
         if (totalNumber > 0) {
             // i.e there're refunds ... -> update campaign status
-            // refundCompleted(_reason, campaign, numberOfCampaignsExcludeRefunded);
             refundCompleted(_reason, campaign, contractFundedInfo);
-            // in case last donator withdraw and set status to REVERTED then will update numberOfCampaignsExcludeRefund there
             if (keccak256(bytes(_reason)) == keccak256(bytes(DELETED))) {
-                contractFundedInfo.totalFundedCampaign -= 1; // numberOfCampaignsExcludeRefunded only count campaign that have remain backers
+                contractFundedInfo.totalFundedCampaign -= 1; 
             }
         } else {
             // if there're no refund...
-            // refundCompleted(_reason, campaign, numberOfCampaignsExcludeRefunded);
             refundCompleted(_reason, campaign, contractFundedInfo);
         }
         return (totalNumber, false, returnTimeLockStatus);
     }
 
     // refund
+    // TODO: test require(success, "Refund failed"); etc. and think about try catch handle
     function singleRefund(
-        SimpleRequestRefundVars memory simpleVars,
+        PackedVars1 memory packedVars1,
         uint256 i, // index of funds
         bool _earlyWithdraw,
         Campaign storage campaign,
         ContractFunded storage contractFundedInfo,
-        // v129 below mapping cIdTo will depricate campaignDonatorNativeTokenFunded, campaignOptionNativeTokenFunded, campaignDonatorTokenFunded, campaignOptionTokenFunded
         MappingCampaignIdTo storage cIdTo,
-        // mapping(uint256 => mapping(address => mapping(address => uint256))) storage campaignDonatorTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => mapping(address => uint256))) storage campaignOptionTokenFunded, // v129
-        // // mapping(string => address) storage whitelistedTokens, // v129: no need because refund don't check wl token
-        // mapping(uint256 => mapping(address => uint256)) storage campaignDonatorNativeTokenFunded, // v129
-        // mapping(uint256 => mapping(uint256 => uint256)) storage campaignOptionNativeTokenFunded, // v129
         mapping(address => string) storage tokenAddrToPriority
     ) internal returns (bool) {
         C_Backer storage fund = campaign.cBacker[i];
@@ -1014,95 +899,67 @@ library GiveUpLib2 {
         /* NOTICE: AT TESTNET WILL TURN OF INTENDED FEATURE USING penaltyContract to hold withdrawal fund
         */
         // if (_earlyWithdraw) {
-        //     recipient = payable(simpleVars.addressVars[1]); // penaltyContract
+        //     recipient = payable(packedVars1.addressVars[1]); // penaltyContract
         // }
 
-        /* ATTENTION:
-        v129: First check for native token refund because ERC20 token will be asigned a specific address at receiving stage. Besides, check token address for address(0) to make sure in this case it's native token. 
-        */
-
         if (
-            // keccak256(abi.encode(fund.tokenSymbol)) == keccak256(abi.encode(simpleVars.stringVars[0])) && fund.qty > 0
-            //     && fund.refunded == false && fund.tokenAddr == address(0)
-            keccak256(abi.encode(fund.tokenSymbol)) == keccak256(abi.encode(simpleVars.stringVars[0])) && fund.qty > 0
+            // check refund for native token (combine check with address(0))
+            keccak256(abi.encode(fund.tokenSymbol)) == keccak256(abi.encode(packedVars1.stringVars[0])) && fund.qty > 0
                 && fund.fundInfo.refunded == false && fund.tokenAddr == address(0)
-                && fund.fundInfo.timeLockStatus == TimeLockStatus.Approved
         ) {
-            // fund.refunded = true; // avoid reentrancy attack
+            // && fund.fundInfo.timeLockStatus == TimeLockStatus.Approved // not yet deploy timelock atm
             fund.fundInfo.refunded = true; // avoid reentrancy attack
             // not reset funds[i].qty to 0 because set refunded to true is enough, keep funds[i].qty as a proof of donating even if campaign is failed and backer withdrew.
-            fund.fundInfo.refundTimestamp = block.timestamp; // v129
+            fund.fundInfo.refundTimestamp = block.timestamp; 
 
             (bool success,) = payable(recipient).call{value: fund.qty}("");
             if (success) {
-                // fund.timestamp = block.timestamp;
                 contractFundedInfo.cTotalNativeToken -= fund.qty;
-                campaign.cFunded.amtFunded -= fund.qty; // deduct to match workflow (case: DELETED)
-                // 10.8 do not deduct totalDonating
-                // v129 deduct from presentDonating
-                campaign.cFunded.presentDonating -= 1;
-                // campaignDonatorNativeTokenFunded[simpleVars.uintVars[0]][fund.backer] -= fund.qty; // v129: complex version
-                cIdTo.BackerNativeTokenFunded[fund.backer] -= fund.qty; // v129: after restructure it's simpler than above
+                campaign.cFunded.raisedFund.amtFunded -= fund.qty; // deduct to match workflow (case: DELETED)
+                campaign.cFunded.raisedFund.presentDonating -= 1;
+                cIdTo.BackerNativeTokenFunded[fund.backer] -= fund.qty; 
 
                 if (_earlyWithdraw) {
-                    // campaignOptionNativeTokenFunded[simpleVars.uintVars[0]][fund.voteOption] -= fund.qty; // v129 complex version
-                    cIdTo.OptionNativeTokenFunded[fund.voteOption] -= fund.qty; // v129: after restructure it's simpler than above
+                    cIdTo.OptionNativeTokenFunded[fund.voteOption] -= fund.qty; 
                 }
 
                 return true;
             }
         } else if (
-            // keccak256(abi.encode(fund.tokenSymbol)) != keccak256(abi.encode(simpleVars.stringVars[0])) && fund.qty > 0
-            //     && fund.refunded == false
-            keccak256(abi.encode(fund.tokenSymbol)) != keccak256(abi.encode(simpleVars.stringVars[0])) && fund.qty > 0
-                && fund.fundInfo.refunded == false && fund.fundInfo.timeLockStatus == TimeLockStatus.Approved
+            // check refund for ERC20 token
+            keccak256(abi.encode(fund.tokenSymbol)) != keccak256(abi.encode(packedVars1.stringVars[0])) && fund.qty > 0
+                && fund.fundInfo.refunded == false
         ) {
-            // fund.refunded = true;
+            // && fund.fundInfo.timeLockStatus == TimeLockStatus.Approved // not yet deploy timelock atm
             fund.fundInfo.refunded = true;
-            fund.fundInfo.refundTimestamp = block.timestamp; // v129
+            fund.fundInfo.refundTimestamp = block.timestamp; 
 
-            // do not reset funds[i].qty to 0 because set refunded to true is enough, need to keep it as a proof of donating even if campaign is failed
-
-            // ERC20 token = ERC20(whitelistedTokens[fund.acceptedToken]); // depricated by v129
             ERC20 token = ERC20(fund.tokenAddr); // no need to check whitelist
             token.transfer(recipient, fund.qty);
-            // fund.timestamp = block.timestamp;
             if (
-                // keccak256(abi.encode(tokenAddrToPriority[whitelistedTokens[fund.acceptedToken]])) // depricated by v129
-                // keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode("firstToken"))
                 keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode(FIRST_TOKEN))
             ) {
                 contractFundedInfo.cTotalFirstToken -= fund.qty;
-                campaign.cFunded.firstTokenFunded -= fund.qty; // deduct to match workflow (case: DELETED)
+                campaign.cFunded.raisedFund.firstTokenFunded -= fund.qty; // deduct to match workflow (case: DELETED)
             } else if (
-                // keccak256(abi.encode(tokenAddrToPriority[whitelistedTokens[fund.acceptedToken]])) // depricated by v129
-                // keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode("secondToken"))
                 keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode(SECOND_TOKEN))
             ) {
                 contractFundedInfo.cTotalSecondToken -= fund.qty;
-                campaign.cFunded.secondTokenFunded -= fund.qty;
+                campaign.cFunded.raisedFund.secondTokenFunded -= fund.qty;
             } else if (
-                // keccak256(abi.encode(tokenAddrToPriority[whitelistedTokens[fund.acceptedToken]])) // depricated by v129
-                // keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode("thirdToken"))
                 keccak256(abi.encode(tokenAddrToPriority[fund.tokenAddr])) == keccak256(abi.encode(THIRD_TOKEN))
             ) {
                 contractFundedInfo.cTotalThirdToken -= fund.qty;
-                campaign.cFunded.thirdTokenFunded -= fund.qty;
+                campaign.cFunded.raisedFund.thirdTokenFunded -= fund.qty;
             }
 
-            // 10.8 do not deduct totalDonating
-            // v129 deduct from presentDonating
-            campaign.cFunded.presentDonating -= 1;
+            // do not deduct totalDonating, deduct presentDonating instead
+            campaign.cFunded.raisedFund.presentDonating -= 1;
 
-            // campaignDonatorTokenFunded[simpleVars.uintVars[0]][fund.backer][fund.acceptedToken] -= fund.qty; // depricated by v129
-            // campaignDonatorTokenFunded[simpleVars.uintVars[0]][fund.backer][fund.tokenAddr] -= fund.qty; // v129: complex version
-            cIdTo.BackerTokenFunded[fund.backer][fund.tokenAddr] -= fund.qty; // v129: after restructure it's simpler than above
+            cIdTo.BackerTokenFunded[fund.backer][fund.tokenAddr] -= fund.qty; 
 
-            // new in V007 11.0: deduct campaignOptionTokenFunded when _earlyWithdraw base on fund.voteOption (more correct vì lúc đóng vào được biến này ghi nhận)
             if (_earlyWithdraw) {
-                // campaignOptionTokenFunded[simpleVars.uintVars[0]][fund.voteOption][fund.acceptedToken] -= fund.qty; // depricated by v129
-                // campaignOptionTokenFunded[simpleVars.uintVars[0]][fund.voteOption][fund.tokenAddr] -= fund.qty; // v129: complex version
-                cIdTo.OptionTokenFunded[fund.voteOption][fund.tokenAddr] -= fund.qty; // v129: after restructure it's simpler than above
+                cIdTo.OptionTokenFunded[fund.voteOption][fund.tokenAddr] -= fund.qty; 
             }
             return true;
         } else {
@@ -1117,7 +974,6 @@ library GiveUpLib2 {
      * If the reason is REVERTING, the campaign status is updated based on the remaining active backers.
      * @param _reason The reason for the refund (DELETED or REVERTING).
      */
-    // function refundCompleted(string memory _reason, Campaign storage campaign, uint256 numberOfCampaignsExcludeRefunded)
     function refundCompleted(
         string memory _reason,
         Campaign storage campaign,
@@ -1126,23 +982,8 @@ library GiveUpLib2 {
         if (keccak256(bytes(_reason)) == keccak256(bytes(DELETED))) {
             campaign.cStatus.campaignStatus = campaignStatusEnum.DELETED;
         } else if (keccak256(bytes(_reason)) == keccak256(bytes(REVERTING))) {
-            /* v129: add new variable presentDonating in struct C_Funded which lead to
-            - No need to use for loop from previous version (from v128) to calculate haveRemainBackers variable:
 
-            C_Backer[] memory backersOfCampaign = GiveUpLib1.getBackersOfCampaign(campaign);
-            bool haveRemainBackers = false;
-            for (uint256 i = 0; i < backersOfCampaign.length; i++) {
-                if (backersOfCampaign[i].refunded) {
-                    continue;
-                } else {
-                    haveRemainBackers = true;
-                    break;
-                }
-            }
-
-            - replace haveRemainBackers by checking condition campaign.cFunded.presentDonating > 0
-            */
-            if (campaign.cFunded.presentDonating > 0) {
+            if (campaign.cFunded.raisedFund.presentDonating > 0) {
                 if (campaign.cStatus.campaignStatus == campaignStatusEnum.OPEN) {
                     campaign.cStatus.campaignStatus = campaignStatusEnum.REVERTING; // point when a backer withdrew and campaign still have remain backer(s)
                 }

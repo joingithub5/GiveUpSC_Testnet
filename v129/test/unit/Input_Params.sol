@@ -1,23 +1,46 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
-uint256 constant SEND_VALUE = 0.1 ether; // used when send native token
+uint256 constant SEND_VALUE = 1 ether; // used when send native token
 uint256 constant SEND_TOKEN_AMT = 100; // used when send ERC20 white listed token
+address payable constant OWNER = payable(address(999)); // 0x00000000000000000000000000000000000003E7
 address payable constant RULER = payable(address(1000));
 address payable constant VOTER1 = payable(address(1001));
 address payable constant VOTER2 = payable(address(1002));
-address payable constant BACKER1 = payable(address(101));
-address payable constant BACKER2 = payable(address(102));
-address payable constant RAISER1 = payable(address(1));
-address payable constant RAISER2 = payable(address(2));
-address payable constant ALCHEMIST1 = payable(address(11));
+address payable constant TRADER1 = payable(address(1011)); // 0x00000000000000000000000000000000000003F3
+address payable constant TRADER2 = payable(address(1012));
+address payable constant BACKER1 = payable(address(101)); // 0x0000000000000000000000000000000000000065
+address payable constant BACKER2 = payable(address(102)); // 0x0000000000000000000000000000000000000066
+address payable constant RAISER1 = payable(address(1)); // 0x0000000000000000000000000000000000000001
+address payable constant RAISER2 = payable(address(2)); // 0x0000000000000000000000000000000000000002
+address payable constant ALCHEMIST1 = payable(address(11)); // 0x000000000000000000000000000000000000000b
 address payable constant ALCHEMIST2 = payable(address(12));
 address constant COMMUNITY1 = address(21);
 address constant COMMUNITY2 = address(22);
 
 uint256 constant STARTING_USER_BALANCE = 100 ether;
+uint256 constant MAX_SWAP_PERCENT = 1; // e.g. 1% of liquidity, change it to control slippage and test swap fee variation. the lower the smaller slippage. E.G. 1% let OWNER get 0.167 ETH from swap fee while 15% let OWNER get 1.448 ETH from swap fee
+// note: with MAX_SWAP_PERCENT = 1:
+// liquidity max rule: amountToken: amountETH = < 10*4  (10000:1)
+// WE SHOULD USE RATIO 1000:1 in TokenTemplate1 contract, sample liquidity is 1ETH + max 10000 token
+// with MAX_SWAP_PERCENT = 1... ETH: 2.125 (max 10000:1), 0.6785 (1000:1), 0.2145 (100:1), 0.0678 (10:1), 0.02145 (1:1)
+// with MAX_SWAP_PERCENT = 15... ETH: 3.934 (max 10000:1), 3.337 (1000:1),  (100:1), 0.471 (10:1),  (1:1)
 
 uint256 constant GAS_PRICE = 1;
+uint256 constant FEE_PCT_10 = 10; // platform fee percentage
+
+struct TestParams {
+    uint256[] haveFundTargets;
+    uint256[] pctForBackers;
+    bool[] changeAlchemists;
+}
+
+struct DonationInfo {
+    uint256 nativeTokenDonation;
+    uint256 ctkTokenDonation;
+    uint256 balanceBefore;
+    uint256 ctkBalanceBefore;
+}
 
 struct CreateCampaignInput {
     uint256 haveFundTarget;
@@ -90,7 +113,7 @@ function initializeCreateCampaignData(uint256 _haveFundTarget, uint256 _pctForBa
     c.content[3] = "image";
     c.timeline[0] = block.timestamp + 86400 * 3;
     c.timeline[1] = block.timestamp + 86400 * 5;
-    c.fund[0] = SEND_VALUE;
+    c.fund[0] = SEND_VALUE; // default 1 ETH
 
     return c;
 }

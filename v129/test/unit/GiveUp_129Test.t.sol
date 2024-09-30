@@ -2,7 +2,6 @@
 pragma solidity ^0.8.18;
 
 import {Test, console} from "forge-std/Test.sol";
-// import {console} from "forge-std/console.sol";
 import {GiveUp129} from "../../src/GiveUp_129.sol";
 import {DeployGiveUp129} from "../../script/DeployGiveUp129.s.sol";
 import "./Input_Params.sol";
@@ -11,6 +10,9 @@ import {CommunityToken} from "../mock/CTK.sol";
 import {RottenToken} from "../mock/ROTTEN.sol";
 import {AnyToken} from "../mock/ANY.sol";
 import {TokenTemplate1} from "../../src/TokenTemplate1.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+
+import {GiveUpDeployer} from "../../src/GiveUpDeployer.sol"; // update to UUPS proxy
 
 contract GiveUp129UnitTest is Test {
     GiveUp129 giveUp;
@@ -18,12 +20,26 @@ contract GiveUp129UnitTest is Test {
     RottenToken rotten;
     AnyToken any;
     // TokenTemplate1 tokenTemplate1;
+    GiveUpDeployer public deployer; // update to UUPS proxy
+    address public proxyAddress; // update to UUPS proxy
 
     function setUp() external {
         uint256 platformFee = 0; // if pass these params from outside will cost gas
         string memory nativeTokenSymbol = "ETH";
-        DeployGiveUp129 deployGiveUp129 = new DeployGiveUp129();
-        (giveUp, ctk, rotten, any) = deployGiveUp129.run(platformFee, nativeTokenSymbol);
+
+        // Sử dụng DeployGiveUp129 để triển khai các hợp đồng
+        DeployGiveUp129 deployGiveUp129 = new DeployGiveUp129(); // update to UUPS proxy
+        // (giveUp, ctk, rotten, any) = deployGiveUp129.run(platformFee, nativeTokenSymbol); // update to UUPS proxy
+        (giveUp, ctk, rotten, any, deployer, proxyAddress) = deployGiveUp129.run(platformFee, nativeTokenSymbol); // update to UUPS proxy
+
+        // deployer = new GiveUpDeployer(); // update to UUPS proxy
+        // bytes32 salt = keccak256("test_salt"); // update to UUPS proxy
+        // GiveUp129 implementation = new GiveUp129(); // update to UUPS proxy
+        // proxyAddress = deployer.getGiveUp129Address(salt, address(implementation), platformFee, nativeTokenSymbol); // update to UUPS proxy
+
+        // DeployGiveUp129 deployGiveUp129 = new DeployGiveUp129(); // replaced after update to UUPS proxy
+        // (giveUp, ctk, rotten, any) = deployGiveUp129.run(platformFee, nativeTokenSymbol); // replaced after update to UUPS proxy
+
         vm.deal(RAISER1, STARTING_USER_BALANCE);
         vm.deal(RAISER2, STARTING_USER_BALANCE);
         vm.deal(BACKER1, STARTING_USER_BALANCE);
@@ -34,19 +50,43 @@ contract GiveUp129UnitTest is Test {
     }
 
     function testPresentCIdAndRuleId() public view {
-        console.log("at initial, MAX_RULES: ", MAX_RULES, " must equal next campaign id: ", giveUp.presentCId());
-        assertEq(giveUp.presentCId(), MAX_RULES);
+        console.log("at initial, MAX_RULES: ", MAX_RULES, " must equal next campaign id: ", giveUp.nextCId());
+        assertEq(giveUp.nextCId(), MAX_RULES);
         assertEq(giveUp.ruleId(), 0);
     }
 
-    function testOwnerIsMessageSender() public view {
-        console.log("contractOwner is msg.sender who deploy the contract");
-        assertEq(giveUp.contractOwner(), msg.sender);
+    // function testOwnerIsMessageSender() public view {
+    //     console.log("contractOwner is msg.sender who deploy the contract");
+    //     // assertEq(giveUp.contractOwner(), msg.sender);
+    //     assertEq(giveUp.contractOwner(), OWNER);
+    // }
+
+    function testOwnerIsMessageSender() public {
+        assertEq(giveUp.contractOwner(), OWNER);
+        console.log(
+            "contractOwner is msg.sender who deploy the contract which was specified by function transferOwnership ... deployGiveUp129 in GiveUpDeployer.sol"
+        );
+        vm.prank(OWNER);
+        address ownerView = giveUp.contractOwner();
+        assertEq(ownerView, OWNER, "Owner view of contractOwner should be OWNER");
+
+        vm.prank(address(0x1234));
+        address nonOwnerView = giveUp.contractOwner();
+        assertEq(nonOwnerView, OWNER, "Non-owner view of contractOwner should still be OWNER");
+
+        console.log("don't use msg.sender because it'll be default to Foundry address");
     }
 
-    function testSendNativeTokenDirectlyToContract() public {
+    function testOutsideCantSendNativeTokenDirectlyToContract() public campaign_100_0_Created {
+        vm.warp(block.timestamp + 86400 * 4); // set proper timeframe to donate when campaign start
+        donateToCampaign(SEND_VALUE * 2, MAX_RULES, 0, 0);
         vm.expectRevert("can not directly send native token to contract, must send via donateToCampaign function ...");
+        vm.startPrank(RAISER1);
         (bool success,) = address(giveUp).call{value: SEND_VALUE}("");
+        address payable giveUpPayable = payable(address(giveUp));
+        vm.expectRevert();
+        giveUpPayable.transfer(SEND_VALUE);
+        vm.stopPrank();
         console.log(success, " contract balance = ", address(giveUp).balance);
     }
 
@@ -67,7 +107,7 @@ contract GiveUp129UnitTest is Test {
             c_input.pctForBackers,
             ALCHEMIST1
         );
-        assertEq(returnCId, giveUp.presentCId() - 1);
+        assertEq(returnCId, giveUp.nextCId() - 1);
         _;
     }
 
@@ -91,12 +131,25 @@ contract GiveUp129UnitTest is Test {
         _;
     }
 
+    modifier initWLToken() {
+        vm.startPrank(giveUp.contractOwner());
+        giveUp.addWhiteListToken(address(ctk), "firstToken");
+        giveUp.addWhiteListToken(address(rotten), "rotten");
+        assert(giveUp.getIsTokenWhitelisted(address(ctk)));
+        assert(giveUp.getIsTokenWhitelisted(address(rotten)));
+        vm.stopPrank();
+        _;
+    }
+
     function getLatestCampaign() public view returns (CampaignNoBacker memory) {
         CampaignNoBacker[] memory campaignsNoBacker = giveUp.getCampaigns();
-        CampaignNoBacker memory campaign = campaignsNoBacker[(giveUp.presentCId() - 1) - MAX_RULES]; // cause getCampaigns() compressed and reindexed
+        CampaignNoBacker memory campaign = campaignsNoBacker[(giveUp.nextCId() - 1) - MAX_RULES]; // cause getCampaigns() compressed and reindexed
         return campaign;
     }
 
+    /**
+     * Note: this function usually used in this test file, not widely used
+     */
     function donateToCampaign(uint256 _amount, uint256 _campaignId, uint256 _option, uint256 _feedback)
         public
         returns (bool)
@@ -144,7 +197,7 @@ contract GiveUp129UnitTest is Test {
         console.log("continueDonating: ", continueDonating, " check contract balance = ", address(giveUp).balance);
         // Assert
         CampaignNoBacker memory thisCampaign = getLatestCampaign();
-        uint256 amtFunded = thisCampaign.cFunded.amtFunded;
+        uint256 amtFunded = thisCampaign.cFunded.raisedFund.amtFunded;
         assertEq(amtFunded, address(giveUp).balance);
         assertEq(alchemist.addr, ALCHEMIST1);
         assertEq(alchemist.isApproved, false);
@@ -268,18 +321,20 @@ contract GiveUp129UnitTest is Test {
         assertEq(fraudReport.reportIDHistory.length, 0);
     }
 
-    // comment because will move createCampaignFinalToken() to lib
-    // function testCreateCampaignFinalToken() public campaign_100_0_Created {
-    //     vm.startPrank(RAISER1);
-    //     giveUp.createCampaignFinalToken("Campaign1", "CId1000", MAX_RULES);
+    // // TODO:
+    // // Unit test for swapWLTokenToNativeToken
+    // function testSwapWLTokenToNativeToken(address _tokenAddr, uint256 _amount) public {
+    //     uint256 initialNativeTokenBalance = address(this).balance;
+    //     uint256 initialTokenBalance = IERC20(_tokenAddr).balanceOf(address(this));
 
-    //     vm.stopPrank();
-    //     (,,,,, CampaignToken memory tokenOfCampaign) = giveUp.getRemainMappingCampaignIdTo(MAX_RULES);
-    //     ContractFunded memory contractFunded = giveUp.getContractFundedInfo();
-    //     TokenTemplate1 tokenOfCamapaign1000 = TokenTemplate1(tokenOfCampaign.tokenAddr);
-    //     assertEq(tokenOfCamapaign1000.name(), "Campaign1");
-    //     assertEq(tokenOfCamapaign1000.symbol(), "CId1000");
-    //     assertEq(tokenOfCampaign.tokenIndex, contractFunded.totalCampaignToken - 1);
-    //     assertEq(tokenOfCampaign.tokenAddr, address(tokenOfCamapaign1000));
+    //     uint256 ethReceived = swapWLTokenToNativeToken(_tokenAddr, _amount);
+
+    //     assertGt(ethReceived, 0, "No ETH received from swap");
+    //     assertEq(address(this).balance, initialNativeTokenBalance + ethReceived, "Incorrect ETH balance after swap");
+    //     assertEq(
+    //         IERC20(_tokenAddr).balanceOf(address(this)),
+    //         initialTokenBalance - _amount,
+    //         "Incorrect token balance after swap"
+    //     );
     // }
 }

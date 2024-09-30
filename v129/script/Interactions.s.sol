@@ -11,13 +11,14 @@ import {CommunityToken} from "../test/mock/CTK.sol";
 // import {RottenToken} from "../test/mock/ROTTEN.sol";
 // import {AnyToken} from "../test/mock/ANY.sol";
 import "../test/unit/Input_Params.sol";
-
+import {TokenTemplate1} from "../src/TokenTemplate1.sol";
 /**
  * Notes in this test:
  * MAX_RULES is the campaign Id of the latest campaign
  * SEND_VALUE is the target amount of native token (e.g. ETH) of test campaign
  * SEND_TOKEN_AMT is the target amount of white list token (e.g. CTK) of test campaign
  */
+
 contract CreateOrUpdate is Script {
     /**
      * just create simple campaign atm
@@ -39,7 +40,7 @@ contract CreateOrUpdate is Script {
             c_input.pctForBackers,
             ALCHEMIST1
         );
-        assert(returnCId == _giveUp.presentCId() - 1);
+        assert(returnCId == _giveUp.nextCId() - 1);
         // vm.stopPrank();
         return returnCId;
     }
@@ -156,11 +157,16 @@ contract DonateOrVote is Script {
 contract WithdrawOrRefund is Script {}
 
 contract PaidoutOrDelete is Script {
-    function payOutCampaign(GiveUp129 _giveUp, uint256 _campaignId) public returns (bool) {
+    // function payOutCampaign(GiveUp129 _giveUp, uint256 _campaignId) public returns (bool) {
+    function payOutCampaign(GiveUp129 _giveUp, uint256 _campaignId)
+        public
+        returns (TokenTemplate1 resultToken, uint256 liquidity)
+    {
         vm.startPrank(msg.sender);
-        bool raiserPaidOut = _giveUp.payOutCampaign(_campaignId);
+        // bool raiserPaidOut = _giveUp.payOutCampaign(_campaignId);
+        (resultToken, liquidity) = _giveUp.payOutCampaign(_campaignId);
         // vm.stopPrank();
-        return raiserPaidOut;
+        // return raiserPaidOut;
     }
 
     function deleteCampaign(GiveUp129 _giveUp, uint256 _campaignId) public returns (bool) {
