@@ -44,16 +44,21 @@ contract GiveUp129 is BackerTokenInterface, ReentrancyGuard, Initializable, UUPS
    3. Backer (or buyer) can withdraw fund with no loss, no lock when campaign fails or in progress.
 
 ## Technical Features
-    Already implemented:
+
+**Already implemented:**
 1. **Upgradeable**: Uses OpenZeppelin's upgradeable contracts pattern.
 2. **Multi-token Support**: Handles native tokens (e.g., ETH) and whitelisted ERC20 tokens.
 3. **Campaign Management**: Creates, updates, and manages various types of campaigns.
 4. **Voting System**: Allows backers to vote on campaign options.
 5. **Fraud Reporting**: Implements a system for backers to report fraudulent campaigns.
-   Not yet implemented:
+   
+**Not yet implemented:**
 6. **Timelock Mechanism**: Prevents front-running attacks during withdrawals.
 7. **NFT Integration**: Works with ContributionNFT for rewarding backers.
-   Testnet UI: https://giveup.vercel.app/
+   
+**Testnet UI:** https://giveup.vercel.app/
+
+**Public repo:** https://github.com/joingithub5/GiveUpSC_Testnet/blob/main/v129/INTRODUCTION.md
 
 ## Campaign Types
 
