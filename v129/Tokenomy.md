@@ -34,25 +34,15 @@
 ### Wave 1
 - Decides the token share for all Wave 0 participants
 - Wave 0 participants must PLEASANTLY (or "hoan hỉ" in Vietnamese) accept the amount given by Wave 1 community as long as they have fullfil all requirement of Wave 0 participants and propose an accepted new requirement for successor (Wave 2)
-- Wave 1 participants also receive no token but must agree to take all the burden, responsibility from now on.
+- Wave 1 participants also receive no token but must agree to take all the burden, responsibility from now on (they're in charge).
 - Wave 0 must retire and support Wave 1 whatever and whenever the agreement is not break. When any agreement break, this project fail.
 
 ### Wave 2
 - Decides the token share for all Wave 1 participants
 - Wave 1 participants must PLEASANTLY (or "hoan hỉ" in Vietnamese) accept the amount given by Wave 2 community as long as they have fullfil all requirement of Wave 0, Wave 1 participants and propose an accepted new requirement for successor (Wave 3)
-- Wave 2 participants also receive no token but must agree to take all the burden, responsibility from now on
+- Wave 2 participants also receive no token but must agree to take all the burden, responsibility from now on (they're in charge).
 - Wave 1 must be retired and support Wave 2 whatever and whenever the agreement is not break. When any agreement break, this project fail.
 
 ### Subsequent Waves
 - Follow the Fibonacci pattern established in previous waves
-
-## Important Notes
-
-- If any agreement is broken, the project fails
-- All participants must "pleasantly" (or "hoan hỉ" in Vietnamese) accept their allocated share
-- Each wave must fulfill requirements set by previous waves and propose new requirements for successors
-
-## Calculation
-
-Interested parties can calculate token distribution for Wave n based on the established Fibonacci pattern.
-
+- Interested parties can calculate token distribution for Wave n based on the established Fibonacci pattern.
